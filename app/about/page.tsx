@@ -19,7 +19,7 @@ export default async function AboutPage() {
             margin: "0 0 4px",
           }}
         >
-          关于我
+          站长介绍
         </h1>
       </div>
       <Markdown content={raw} />
