@@ -1,22 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import type { NavItem } from "@/lib/site-config";
+import { createClient } from "@/lib/supabase/client";
 
 export default function SiteHeader({
   title,
   subtitle,
   nav,
+  userEmail,
 }: {
   title: string;
   subtitle: string;
   nav: NavItem[];
+  userEmail: string | null;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+
+  const signOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
 
   return (
     <header className="site-header">
@@ -40,6 +51,16 @@ export default function SiteHeader({
             </Link>
           ))}
           <ThemeToggle />
+          {userEmail && (
+            <>
+              <span className="user-chip" title={userEmail}>
+                {userEmail.split("@")[0]}
+              </span>
+              <button type="button" className="btn btn-ghost" onClick={signOut}>
+                退出
+              </button>
+            </>
+          )}
         </nav>
 
         <button

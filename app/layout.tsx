@@ -3,6 +3,7 @@ import { getSiteConfig } from "@/lib/site-config";
 import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
 import DynamicWallpaper from "@/components/DynamicWallpaper";
+import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 
@@ -21,6 +22,10 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const cfg = await getSiteConfig();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
@@ -43,7 +48,12 @@ export default async function RootLayout({
       </head>
       <body>
         <DynamicWallpaper />
-        <SiteHeader title={cfg.title} subtitle={cfg.subtitle} nav={cfg.nav} />
+        <SiteHeader
+          title={cfg.title}
+          subtitle={cfg.subtitle}
+          nav={cfg.nav}
+          userEmail={user?.email ?? null}
+        />
         <main className="site-main">{children}</main>
         <Footer title={cfg.title} author={cfg.author} />
       </body>
