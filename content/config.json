@@ -1,0 +1,16 @@
+{
+  "title": "未名诗页",
+  "subtitle": "Untitled Pages",
+  "tagline": "用代码与公式，记录一个二次元研究者的日常",
+  "author": "你的名字",
+  "description": "一个二次元风格的学术博客，记录代码、数学与生活。",
+  "nav": [
+    { "label": "首页", "href": "/" },
+    { "label": "标签", "href": "/tags" },
+    { "label": "关于我", "href": "/about" },
+    { "label": "写博客", "href": "/editor" }
+  ],
+  "social": [
+    { "label": "GitHub", "href": "https://github.com/你的用户名" }
+  ]
+}
