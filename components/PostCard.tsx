@@ -12,7 +12,7 @@ export default function PostCard({
 }) {
   return (
     <Link
-      href={`/posts/${post.slug}`}
+      href={`/u/${post.username}/${post.slug}`}
       className="post-card reveal"
       style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
     >
@@ -21,6 +21,7 @@ export default function PostCard({
         {post.category && (
           <span className="post-category">{post.category}</span>
         )}
+        <span className="post-author">@{post.username}</span>
       </div>
       <h2 className="post-title">{post.title}</h2>
       {post.summary && <p className="post-summary">{post.summary}</p>}

@@ -1,10 +1,5 @@
-import { getAllTags, getPostsByTag } from "@/lib/posts";
+import { getPostsByTag } from "@/lib/posts";
 import PostCard from "@/components/PostCard";
-
-export async function generateStaticParams() {
-  const tags = await getAllTags();
-  return tags.map((t) => ({ tag: t.tag }));
-}
 
 export default async function TagPage({
   params,
@@ -23,7 +18,7 @@ export default async function TagPage({
       ) : (
         <div className="post-list">
           {posts.map((p, i) => (
-            <PostCard key={p.slug} post={p} index={i} />
+            <PostCard key={p.id} post={p} index={i} />
           ))}
         </div>
       )}

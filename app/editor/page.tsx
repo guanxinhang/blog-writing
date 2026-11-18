@@ -1,34 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Markdown from "@/lib/markdown";
 import { slugify } from "@/lib/slug";
-
-type User = { login: string; name: string; avatar: string };
+import { createClient } from "@/lib/supabase/client";
 
 type EditorPost = {
+  id?: string;
   slug: string;
   title: string;
-  date: string;
   tags: string[];
   category?: string;
   summary?: string;
   content: string;
   draft: boolean;
-  sha?: string;
 };
 
 const DRAFT_KEY = "anime-blog:draft";
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function newPost(): EditorPost {
   return {
     slug: "",
     title: "",
-    date: today(),
     tags: [],
     category: "",
     summary: "",
@@ -45,63 +40,68 @@ function parseTags(input: string): string[] {
 }
 
 export default function EditorPage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [username, setUsername] = useState("");
   const [posts, setPosts] = useState<EditorPost[]>([]);
   const [current, setCurrent] = useState<EditorPost>(newPost());
-  const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [tagsInput, setTagsInput] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
   );
   const [draftAt, setDraftAt] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const router = useRouter();
 
-  const loadPosts = useCallback(async () => {
-    try {
-      const res = await fetch("/api/posts");
-      const data = await res.json();
-      if (Array.isArray(data.posts)) setPosts(data.posts);
-    } catch {
-      /* 忽略 */
-    }
+  const loadPosts = useCallback(async (uid: string) => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: false });
+    setPosts(
+      (data ?? []).map((r) => ({
+        id: r.id,
+        slug: r.slug,
+        title: r.title,
+        tags: r.tags ?? [],
+        category: r.category ?? undefined,
+        summary: r.summary ?? undefined,
+        content: r.content,
+        draft: r.draft,
+      })),
+    );
   }, []);
 
-  // 检查登录状态
+  // 获取当前登录用户
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch("/api/auth/me");
-        const data = await res.json();
-        if (data.loggedIn) {
-          setUser(data.user);
-          await loadPosts();
-        }
-      } catch {
-        /* 忽略 */
-      } finally {
-        setLoading(false);
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("id", user.id)
+          .maybeSingle();
+        setUsername(profile?.username ?? "");
+        await loadPosts(user.id);
       }
     })();
   }, [loadPosts]);
-
-  // 读取 OAuth 回调错误
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("error") === "auth") {
-      setError("GitHub 登录失败，请重试。");
-    }
-  }, []);
 
   // 恢复本地草稿
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
-        const draft = JSON.parse(raw) as EditorPost;
-        setCurrent({ ...newPost(), ...draft, tags: draft.tags ?? [] });
-        setActiveSlug(draft.slug || null);
-        setTagsInput((draft.tags ?? []).join(", "));
+        const d = JSON.parse(raw) as EditorPost;
+        setCurrent({ ...newPost(), ...d, tags: d.tags ?? [] });
+        setTagsInput((d.tags ?? []).join(", "));
       }
     } catch {
       /* 忽略 */
@@ -122,14 +122,14 @@ export default function EditorPage() {
 
   const createNew = () => {
     setCurrent(newPost());
-    setActiveSlug(null);
+    setActiveId(null);
     setTagsInput("");
     setStatus("idle");
   };
 
   const select = (p: EditorPost) => {
     setCurrent(p);
-    setActiveSlug(p.slug);
+    setActiveId(p.id ?? null);
     setTagsInput(p.tags.join(", "));
     setStatus("idle");
   };
@@ -139,7 +139,10 @@ export default function EditorPage() {
     setCurrent((c) => ({ ...c, tags: parseTags(value) }));
   };
 
-  const setField = <K extends keyof EditorPost>(key: K, value: EditorPost[K]) => {
+  const setField = <K extends keyof EditorPost>(
+    key: K,
+    value: EditorPost[K],
+  ) => {
     setCurrent((c) => ({ ...c, [key]: value }));
   };
 
@@ -148,104 +151,92 @@ export default function EditorPage() {
       alert("请先填写标题～");
       return;
     }
+    if (!userId) return;
     setStatus("saving");
-    const slug = slugify(activeSlug || current.title);
-    const body: EditorPost = { ...current, slug, tags: current.tags };
-    try {
-      const res = await fetch("/api/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error();
-      setActiveSlug(slug);
-      setCurrent((c) => ({ ...c, slug }));
-      localStorage.removeItem(DRAFT_KEY);
-      setStatus("saved");
-      await loadPosts();
-      setTimeout(() => setStatus("idle"), 2500);
-    } catch {
-      setStatus("error");
+    const supabase = createClient();
+
+    const base = slugify(current.slug || current.title);
+    // 处理同用户内 slug 冲突
+    let finalSlug = base;
+    const { data: clash } = await supabase
+      .from("posts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", base);
+    const clashOther = (clash ?? []).some((r) => r.id !== activeId);
+    if (clashOther) {
+      finalSlug = `${base}-${Date.now().toString().slice(-6)}`;
     }
+
+    const payload = {
+      user_id: userId,
+      slug: finalSlug,
+      title: current.title,
+      content: current.content,
+      tags: current.tags,
+      category: current.category || null,
+      summary: current.summary || null,
+      draft: current.draft,
+    };
+
+    let error = null;
+    if (activeId) {
+      const res = await supabase.from("posts").update(payload).eq("id", activeId);
+      error = res.error;
+    } else {
+      const res = await supabase.from("posts").insert(payload).select();
+      error = res.error;
+      if (res.data?.[0]) setActiveId(res.data[0].id);
+    }
+
+    if (error) {
+      setStatus("error");
+      return;
+    }
+    setCurrent((c) => ({ ...c, slug: finalSlug }));
+    localStorage.removeItem(DRAFT_KEY);
+    setStatus("saved");
+    await loadPosts(userId);
+    setTimeout(() => setStatus("idle"), 2500);
   };
 
   const del = async () => {
-    if (!activeSlug) return;
-    if (!window.confirm(`确定删除《${current.title || activeSlug}》吗？此操作不可撤销。`))
+    if (!activeId) return;
+    if (!window.confirm("确定删除这篇文章吗？此操作不可撤销。")) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("posts").delete().eq("id", activeId);
+    if (error) {
+      alert("删除失败，请重试");
       return;
-    try {
-      const res = await fetch(`/api/posts/${encodeURIComponent(activeSlug)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error();
-      await loadPosts();
-      createNew();
-    } catch {
-      alert("删除失败，请重试。");
     }
+    await loadPosts(userId!);
+    createNew();
   };
 
-  const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.reload();
+  const signOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
   };
-
-  if (loading) {
-    return <p className="empty">加载中…</p>;
-  }
-
-  if (!user) {
-    return (
-      <div className="editor-login">
-        <div className="login-card">
-          <h1>✿ 写博客</h1>
-          <p>用 GitHub 账号登录后，即可在线撰写并发布文章。</p>
-          {error && <p style={{ color: "#e05b5b" }}>{error}</p>}
-          <a href="/api/auth/login" className="btn btn-primary">
-            使用 GitHub 登录
-          </a>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="editor-wrap">
       <div className="editor-topbar">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            color: "var(--text-soft)",
-            fontSize: 14,
-          }}
-        >
-          {user.avatar ? (
-            <img
-              src={user.avatar}
-              alt=""
-              width={32}
-              height={32}
-              style={{ borderRadius: "50%" }}
-            />
-          ) : (
-            <span
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                background: "var(--primary-soft)",
-                display: "grid",
-                placeItems: "center",
-                fontSize: 14,
-                color: "var(--primary-strong)",
-              }}
-            >
-              {user.name?.[0] ?? "?"}
-            </span>
-          )}
-          <span>{user.name || user.login}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Link
+            href={username ? `/u/${username}` : "/"}
+            style={{
+              color: "var(--primary-strong)",
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            @{username || "我"}
+          </Link>
+          <span style={{ color: "var(--text-soft)", fontSize: 13 }}>
+            我的主页
+          </span>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button
@@ -256,7 +247,7 @@ export default function EditorPage() {
           >
             {status === "saving" ? "保存中…" : "保存 / 发布"}
           </button>
-          <button type="button" className="btn btn-ghost" onClick={logout}>
+          <button type="button" className="btn btn-ghost" onClick={signOut}>
             退出登录
           </button>
         </div>
@@ -272,7 +263,7 @@ export default function EditorPage() {
           >
             ＋ 新建文章
           </button>
-          <h3>文章列表</h3>
+          <h3>我的文章</h3>
           <div className="editor-post-list">
             {posts.length === 0 && (
               <span style={{ color: "var(--text-soft)", fontSize: 13 }}>
@@ -281,10 +272,10 @@ export default function EditorPage() {
             )}
             {posts.map((p) => (
               <button
-                key={p.slug}
+                key={p.id}
                 type="button"
                 className={`editor-post-item ${
-                  activeSlug === p.slug ? "active" : ""
+                  activeId === p.id ? "active" : ""
                 }`}
                 onClick={() => select(p)}
               >
@@ -306,14 +297,6 @@ export default function EditorPage() {
               />
             </div>
             <div className="editor-field">
-              <label>日期</label>
-              <input
-                type="date"
-                value={current.date}
-                onChange={(e) => setField("date", e.target.value)}
-              />
-            </div>
-            <div className="editor-field">
               <label>分类</label>
               <input
                 value={current.category ?? ""}
@@ -326,7 +309,7 @@ export default function EditorPage() {
               <input
                 value={tagsInput}
                 onChange={(e) => updateTags(e.target.value)}
-                placeholder="数学, 编程, 二次元"
+                placeholder="数学, 编程, 小作文"
               />
             </div>
             <div className="editor-field full">
@@ -358,7 +341,7 @@ export default function EditorPage() {
           <div className="editor-actions">
             <span className={`editor-status ${status}`}>
               {status === "saved"
-                ? "✓ 已保存到 GitHub"
+                ? "✓ 已保存"
                 : status === "saving"
                   ? "保存中…"
                   : status === "error"
@@ -391,7 +374,7 @@ export default function EditorPage() {
                 />
                 草稿（首页不显示）
               </label>
-              {activeSlug && (
+              {activeId && (
                 <button type="button" className="btn btn-danger" onClick={del}>
                   删除
                 </button>

@@ -1,31 +1,28 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getAllPosts, getPost, formatDate } from "@/lib/posts";
+import { getPost, formatDate } from "@/lib/posts";
 import Markdown from "@/lib/markdown";
-
-export async function generateStaticParams() {
-  const posts = await getAllPosts();
-  return posts.map((p) => ({ slug: p.slug }));
-}
 
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ username: string; slug: string }>;
 }) {
-  const { slug } = await params;
-  const decoded = decodeURIComponent(slug);
-  const post = await getPost(decoded);
-  return { title: post?.title ?? decoded };
+  const { username, slug } = await params;
+  const post = await getPost(decodeURIComponent(username), decodeURIComponent(slug));
+  return { title: post?.title ?? decodeURIComponent(slug) };
 }
 
 export default async function PostPage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ username: string; slug: string }>;
 }) {
-  const { slug } = await params;
-  const post = await getPost(decodeURIComponent(slug));
+  const { username, slug } = await params;
+  const post = await getPost(
+    decodeURIComponent(username),
+    decodeURIComponent(slug),
+  );
   if (!post) notFound();
 
   return (
@@ -33,6 +30,9 @@ export default async function PostPage({
       <header className="post-detail-header">
         <h1>{post.title}</h1>
         <div className="post-detail-meta">
+          <Link href={`/u/${post.username}`} className="post-author">
+            @{post.username}
+          </Link>
           <time>{formatDate(post.date)}</time>
           {post.category && (
             <span className="post-category">{post.category}</span>

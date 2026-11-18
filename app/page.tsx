@@ -26,7 +26,7 @@ export default async function HomePage() {
       ) : (
         <div className="post-list">
           {posts.map((p, i) => (
-            <PostCard key={p.slug} post={p} index={i} />
+            <PostCard key={p.id} post={p} index={i} />
           ))}
         </div>
       )}

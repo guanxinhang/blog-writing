@@ -509,13 +509,13 @@ button {
 .post-card-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
 }
 .post-date {
   font-size: 13px;
   color: var(--text-soft);
   font-family: var(--font-mono);
+  margin-right: auto;
 }
 .post-category {
   font-size: 12px;
@@ -523,6 +523,14 @@ button {
   border-radius: 999px;
   background: var(--lavender-soft);
   color: var(--lavender);
+  font-weight: 500;
+}
+.post-author {
+  font-size: 12px;
+  padding: 2px 11px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
   font-weight: 500;
 }
 .post-title {
